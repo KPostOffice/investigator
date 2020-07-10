@@ -29,15 +29,21 @@ from pathlib import Path
 
 from thoth.storages.graph import GraphDatabase
 from thoth.messaging import MessageBase
-from thoth.common import OpenShift
+# from thoth.common import OpenShift
 from thoth.python import Pipfile
-from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+from prometheus_client import CollectorRegistry, Gauge, Counter, push_to_gateway
+
+g = Gauge('my_inprogress_requests', "Number of unresolved package requests being consumed")
+e = Counter('total_exceptions', 'Number of messages which raise exceptions')
+s = Counter('total_processed', 'Number of messages succesfully processed')
+
+import asyncio
 
 prometheus_registry = CollectorRegistry()
 
 _LOGGER = logging.getLogger(__name__)
 
-OPENSHIFT = OpenShift()
+# OPENSHIFT = OpenShift()
 
 GRAPH = GraphDatabase()
 
@@ -52,97 +58,110 @@ _THOTH_METRICS_PUSHGATEWAY_URL = os.getenv(
 
 def investigate_unresolved_package(file_test_path: Optional[Path] = None) -> Tuple[Dict[Any, Any], Optional[str]]:
     """Investigate on unresolved packages."""
-    if file_test_path:
-        _LOGGER.debug("Dry run..")
-        adviser_run_path = file_test_path
-    else:
-        adviser_run_path = Path(os.environ["JSON_FILE_PATH"])
+    pass
+    # if file_test_path:
+    #     _LOGGER.debug("Dry run..")
+    #     adviser_run_path = file_test_path
+    # else:
+    #     adviser_run_path = Path(os.environ["JSON_FILE_PATH"])
 
-    if not adviser_run_path.exists():
-        raise FileNotFoundError(f"Cannot find the file on this path: {adviser_run_path}")
+    # if not adviser_run_path.exists():
+    #     raise FileNotFoundError(f"Cannot find the file on this path: {adviser_run_path}")
 
-    with open(adviser_run_path, "r") as f:
-        content = json.load(f)
+    # with open(adviser_run_path, "r") as f:
+    #     content = json.load(f)
 
-    unresolved_packages = []
-    report = content["result"]["report"]
-    if report:
-        errors_details = report.get("_ERROR_DETAILS")
-        if errors_details:
-            unresolved_packages = errors_details["unresolved"]
+    # unresolved_packages = []
+    # report = content["result"]["report"]
+    # if report:
+    #     errors_details = report.get("_ERROR_DETAILS")
+    #     if errors_details:
+    #         unresolved_packages = errors_details["unresolved"]
 
-    if not unresolved_packages:
-        _LOGGER.warning("No packages to be solved with priority identified.")
-        sys.exit(2)
+    # if not unresolved_packages:
+    #     _LOGGER.warning("No packages to be solved with priority identified.")
+    #     sys.exit(2)
 
-    parameters = content["result"]["parameters"]
-    runtime_environment = parameters["project"].get("runtime_environment")
+    # parameters = content["result"]["parameters"]
+    # runtime_environment = parameters["project"].get("runtime_environment")
 
-    solver = OPENSHIFT.obtain_solver_from_runtime_environment(runtime_environment=runtime_environment)
+    # solver = OPENSHIFT.obtain_solver_from_runtime_environment(runtime_environment=runtime_environment)
 
-    requirements = parameters["project"].get("requirements")
+    # requirements = parameters["project"].get("requirements")
 
-    pipfile = Pipfile.from_dict(requirements)
-    packages = pipfile.packages.packages
-    dev_packages = pipfile.dev_packages.packages
+    # pipfile = Pipfile.from_dict(requirements)
+    # packages = pipfile.packages.packages
+    # dev_packages = pipfile.dev_packages.packages
 
-    packages_to_solve = {}
-    for package_name in unresolved_packages:
+    # packages_to_solve = {}
+    # for package_name in unresolved_packages:
 
-        if package_name in packages:
-            packages_to_solve[package_name] = packages[package_name]
+    #     if package_name in packages:
+    #         packages_to_solve[package_name] = packages[package_name]
 
-        if package_name in dev_packages:
-            packages_to_solve[package_name] = dev_packages[package_name]
+    #     if package_name in dev_packages:
+    #         packages_to_solve[package_name] = dev_packages[package_name]
 
-    _LOGGER.info(f"Unresolved packages identified.. {packages_to_solve}")
+    # _LOGGER.info(f"Unresolved packages identified.. {packages_to_solve}")
 
-    if solver:
-        return (packages_to_solve, solver)
+    # if solver:
+    #     return (packages_to_solve, solver)
 
-    return (packages_to_solve, None)
+    # return (packages_to_solve, None)
 
+async def parse_unresolved_package_message(unresolved_package: MessageBase) -> None:
+    try:
+        g.inc()
+        """Parse unresolved package message."""
+        package_name = unresolved_package.package_name
+        package_version = unresolved_package.package_version
+        indexes: List[Any] = unresolved_package.index_url
+        solver = unresolved_package.solver
 
-def parse_unresolved_package_message(unresolved_package: MessageBase) -> None:
-    """Parse unresolved package message."""
-    package_name = unresolved_package.package_name
-    package_version = unresolved_package.package_version
-    indexes: List[Any] = unresolved_package.sources
-    solver = unresolved_package.solver
+        from random import randint
 
-    registered_indexes: List[Any] = GRAPH.get_python_package_index_urls_all()
+        i = randint(0,100)
+        if(i > 75):
+            raise Exception
+        # registered_indexes: List[Any] = GRAPH.get_python_package_index_urls_all()
 
-    if set(indexes) & set(registered_indexes):
-        _LOGGER.warning("User requested index that is not registered in Thoth.")
+        # if set(indexes) & set(registered_indexes):
+        #     _LOGGER.warning("User requested index that is not registered in Thoth.")
 
-    if not package_version:
-        packages = package_name
-    else:
-        packages = f"{package_name}==={package_version}"
+        # if not package_version:
+        #     packages = package_name
+        # else:
+        #     packages = f"{package_name}==={package_version}"
 
-    is_scheduled = _schedule_solver_with_priority(packages=packages, indexes=registered_indexes, solver=solver)
-
-    # TODO: Expose metrics instead of sending to Pushgateway
-    send_metrics_to_pushgateway(unresolved_package=unresolved_package, is_scheduled=is_scheduled)
+        # is_scheduled = _schedule_solver_with_priority(packages=packages, indexes=registered_indexes, solver=solver)
+        await asyncio.sleep(1)
+        # # TODO: Expose metrics instead of sending to Pushgateway
+        # send_metrics_to_pushgateway(unresolved_package=unresolved_package, is_scheduled=is_scheduled)
+        s.inc()
+    except:
+        e.inc()
+    finally:
+        g.dec()
 
 
 def _schedule_solver_with_priority(packages: str, indexes: List[str], solver: str) -> int:
     """Schedule solver with priority."""
-    try:
-        analysis_id = OPENSHIFT.schedule_solver(solver=solver, packages=packages, indexes=indexes, transitive=False)
-        _LOGGER.info(
-            "Scheduled solver %r for packages %r from indexes %r, analysis is %r",
-            solver,
-            packages,
-            indexes,
-            analysis_id,
-        )
-        is_scheduled = 1
-    except Exception:
-        _LOGGER.warning(f"Failed to schedule solver for package {packages} from {indexes}")
-        is_scheduled = 0
+    # try:
+    #     analysis_id = OPENSHIFT.schedule_solver(solver=solver, packages=packages, indexes=indexes, transitive=False)
+    #     _LOGGER.info(
+    #         "Scheduled solver %r for packages %r from indexes %r, analysis is %r",
+    #         solver,
+    #         packages,
+    #         indexes,
+    #         analysis_id,
+    #     )
+    #     is_scheduled = 1
+    # except Exception:
+    #     _LOGGER.warning(f"Failed to schedule solver for package {packages} from {indexes}")
+    #     is_scheduled = 0
 
-    return is_scheduled
+    # return is_scheduled
+    pass
 
 
 def send_metrics_to_pushgateway(unresolved_package: MessageBase, is_scheduled: int) -> None:

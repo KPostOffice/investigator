@@ -27,7 +27,9 @@ from thoth.investigator import __service_version__
 from thoth.messaging import MessageBase, UnresolvedPackageMessage
 from thoth.investigator.investigate_unresolved_package import parse_unresolved_package_message
 
+from prometheus_client import start_http_server, Gauge, Counter
 
+start_http_server(1234)
 DEBUG_LEVEL = bool(int(os.getenv("DEBUG_LEVEL", 0)))
 
 if DEBUG_LEVEL:
@@ -42,11 +44,14 @@ app = MessageBase.app
 unresolved_package_message_topic = UnresolvedPackageMessage().topic
 
 
-@app.agent(unresolved_package_message_topic)
+@app.agent(unresolved_package_message_topic, concurrency=4)
 async def consume_unresolved_package(unresolved_packages) -> None:
     """Loop when an unresolved package message is received."""
     async for unresolved_package in unresolved_packages:
-        parse_unresolved_package_message(unresolved_package=unresolved_package)
+        try:
+            await parse_unresolved_package_message(unresolved_package=unresolved_package)
+        except:
+            pass
 
 
 if __name__ == "__main__":
